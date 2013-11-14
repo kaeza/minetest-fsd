@@ -5,6 +5,7 @@ import os
 from Tkinter import *
 import tkMessageBox
 import tkFileDialog
+import tkColorChooser
 
 import fs
 import gfx
@@ -32,7 +33,7 @@ class MainFrame(Frame):
 		self.update_property_list()
 		self.update_item_list()
 		self.redraw_canvas()
-		self.bind("reconfigure", self.handle_reconfigure)
+		self.parent.bind("reconfigure", self.handle_reconfigure)
 
 	def init_menu(self):
 		menubar = Frame(self)
@@ -83,9 +84,29 @@ class MainFrame(Frame):
 		l = self.item_list = Listbox(vbox)
 		l.pack(side=BOTTOM, fill=BOTH)
 		l.bind("<Button-1>", self.item_list_select)
-		c = self.canvas = Canvas(hbox)
+
+		vbox = Frame(hbox)
+		vbox.pack(side=RIGHT, fill=BOTH, expand=True)
+		toolbar = self.toolbar = Frame(vbox)
+		toolbar.pack(side=TOP, fill=X)
+		for i in fs.classes:
+			try:
+				image = PhotoImage(file=DATADIR+"/"+i.__name__+".gif")
+				b = Button(toolbar,
+					text=i.__name__,
+					image=image,
+					command=lambda i=i: self.mcb_form_add(i)
+				)
+				b.image = image
+				b.pack(side=LEFT)
+			except TclError, e:
+				print e
+				pass
+		c = self.canvas = Canvas(vbox)
 		c["bg"] = "#0000C0"
-		c.pack(side=RIGHT, fill=BOTH, expand=True)
+		c.pack(side=TOP, fill=BOTH, expand=True)
+		t = self.fsbox = Text(vbox, state=DISABLED, height=4)
+		t.pack(side=BOTTOM, fill=BOTH, expand=False)
 
 	def item_list_select(self, event):
 		idx = self.item_list.index("@%d,%d" % (event.x, event.y))
@@ -115,13 +136,18 @@ class MainFrame(Frame):
 		for prop in self.selection.properties:
 			pname, plabel, ptype = prop
 			lbl = Label(self.prop_list, text=plabel)
+			f = Frame(self.prop_list)
 			v = StringVar(value=getattr(self.selection, pname))
-			ent = Entry(self.prop_list, textvariable=v)
+			ent = Entry(f, textvariable=v)
+			ent.pack(side=LEFT, fill=BOTH, expand=True)
 			ent.var = v
 			ent.prop_name = pname
 			ent.prop_type = ptype
+			if hasattr(ptype, "mode"):
+				b = Button(f, text="...", command=lambda ent=ent: self.show_more(ent))
+				b.pack(side=RIGHT)
 			lbl.grid(column=0, row=n)
-			ent.grid(column=1, row=n)
+			f.grid(column=1, row=n)
 			n += 1
 			self.prop_entries[pname] = ent
 		b = Button(self.prop_list, text="Apply", command=self.apply_props)
@@ -129,11 +155,21 @@ class MainFrame(Frame):
 		b = Button(self.prop_list, text="Revert", command=self.update_property_list)
 		b.grid(column=1, row=n)
 
+	def show_more(self, ent):
+		mode = ent.prop_type.mode
+		if mode == "color":
+			c = tkColorChooser.askcolor(color=ent.var.get())
+			if c[1]:
+				ent.var.set(c[1])
+
 	def apply_props(self):
 		if not self.selection: return
 		for key in self.prop_entries:
 			ent = self.prop_entries[key]
-			setattr(self.selection, ent.prop_name, ent.prop_type(ent.var.get()))
+			try:
+				setattr(self.selection, ent.prop_name, ent.prop_type(ent.var.get()))
+			except ValueError:
+				pass
 		self.redraw_canvas()
 		self.update_item_list()
 
@@ -173,6 +209,8 @@ class MainFrame(Frame):
 		g = gfx.TkGraphics(self.canvas, translate=translate, scale=scale)
 		g.clear()
 		self.formspec.draw(g)
+		self.fsbox.delete(0, END)
+		self.fsbox.insert(END, str(self.formspec))
 
 	def mcb_file_save(self):
 		if not self.filename:
@@ -212,17 +250,7 @@ def open_file():
 def main():
 	global root
 	root = Tk()
-	_="""
-	menubar = Frame(root)
-	menubar.pack(side=TOP, fill=X)
-	mb = Menubutton(menubar, text="File")
-	mb.pack(side=LEFT)
-	mb.menu = mb["menu"] = Menu(mb, tearoff=0)
-	mb.menu.add_command(label="New", command=new_window)
-	mb.menu.add_command(label="Open...", command=open_file)
-	mb.menu.add_separator()
-	mb.menu.add_command(label="Quit", command=exit)
-	"""
+	root.title("Formspec Designer %s" % VERSION_STR)
 	bb = Frame(root)
 	bb.pack(side=TOP, fill=X)
 	Button(bb, text="New",     command=new_window).pack(side=LEFT)
