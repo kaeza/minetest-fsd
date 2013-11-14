@@ -1,6 +1,7 @@
 #! /usr/bin/env python2.7
 
 import os
+import re
 
 from Tkinter import *
 import tkMessageBox
@@ -11,12 +12,128 @@ import fs
 import gfx
 
 DATADIR = (os.path.dirname(__file__) or ".")+"/data"
-print "DATADIR:", DATADIR
 
 GRID_SIZE = 40
 
 VERSION = (0, 1, 0)
 VERSION_STR = "%d.%d.%d" % VERSION
+
+class Prop(Frame):
+
+	def __init__(self, master, fsitem, propname):
+		Frame.__init__(self, master)
+		self.item = fsitem
+		self.name = propname
+
+	def get(self):
+		pass
+
+	def set(self, value):
+		pass
+
+	def commit(self):
+		setattr(self.item, self.name, self.get())
+
+class StringProp(Prop):
+
+	def __init__(self, master, fsitem, propname):
+		Prop.__init__(self, master, fsitem, propname)
+		v = self.var = StringVar(value=getattr(fsitem, propname))
+		ent = Entry(self, textvariable=v)
+		ent.pack(side=LEFT, fill=BOTH, expand=True)
+
+	def get(self):
+		return self.var.get()
+
+	def set(self, value):
+		self.var.set(str(value))
+
+class FloatProp(StringProp):
+
+	def get(self):
+		return float(self.var.get())
+
+	def set(self, value):
+		self.var.set(str(float(value)))
+
+class BoolProp(Prop):
+
+	def __init__(self, master, fsitem, propname):
+		Prop.__init__(self, master, fsitem, propname)
+		v = self.var = IntVar(value=int(getattr(fsitem, propname)))
+		cb = Checkbox(self, variable=v)
+		cb.pack(side=LEFT, fill=BOTH, expand=True)
+
+	def get(self):
+		return bool(self.var.get())
+
+	def set(self, value):
+		self.var.set(int(bool(value)))
+
+class Color:
+
+	regex = re.compile("#"
+		+r'(?P<r>[0-9a-fA-F][0-9a-fA-F])'
+		+r'(?P<g>[0-9a-fA-F][0-9a-fA-F])'
+		+r'(?P<b>[0-9a-fA-F][0-9a-fA-F])'
+		+r'(?P<a>[0-9a-fA-F][0-9a-fA-F])?'
+	)
+
+	mode = "color"
+
+	def __init__(self, s=None, r=0, g=0, b=0, a=None):
+		if s:
+			m = self.regex.match(s)
+			if not m:
+				raise ValueError, "invalid color format"
+			self.r = int(m.group("r"), 16)
+			self.g = int(m.group("g"), 16)
+			self.b = int(m.group("b"), 16)
+			a = m.group("a")
+			if a:
+				self.a = int(a, 16)
+			else:
+				self.a = None
+		else:
+			self.r = r
+			self.g = g
+			self.b = b
+			self.a = a
+
+	def __str__(self):
+		a = "" if self.a is None else "%02X" % self.a
+		return "#%02X%02X%02X%s" % (self.r, self.g, self.b, a)
+
+class ColorProp(Prop):
+
+	def __init__(self, master, fsitem, propname):
+		Prop.__init__(self, master, fsitem, propname)
+		c = self.color = Color(getattr(fsitem, propname))
+		v = self.var = StringVar(value=str(c))
+		ent = Entry(self, textvariable=v)
+		ent.pack(side=LEFT, fill=BOTH, expand=True)
+		b = Button(self, text="...", command=lambda ent=ent: self.show_more(ent))
+		b.pack(side=RIGHT)
+
+	def show_more(self, ent):
+		c = tkColorChooser.askcolor(color=ent.var.get())
+		if c[1]:
+			self.var.set(c[1])
+
+	def get(self):
+		return self.var.get()
+
+	def set(self, value):
+		c = Color(value)
+		self.color = c
+		self.var.set(str(c))
+
+prop_types = {
+	"str":   StringProp,
+	"num":   FloatProp,
+	"bool":  BoolProp,
+	"color": ColorProp,
+}
 
 def not_implemented(*args, **kw):
 	tkMessageBox.showwarning(message="Not implemented yet.")
@@ -105,7 +222,7 @@ class MainFrame(Frame):
 		c = self.canvas = Canvas(vbox)
 		c["bg"] = "#0000C0"
 		c.pack(side=TOP, fill=BOTH, expand=True)
-		t = self.fsbox = Text(vbox, state=DISABLED, height=4)
+		t = self.fsbox = Text(vbox, height=4)
 		t.pack(side=BOTTOM, fill=BOTH, expand=False)
 
 	def item_list_select(self, event):
@@ -132,42 +249,27 @@ class MainFrame(Frame):
 		l.grid(column=0, row=0, columnspan=2)
 		if not self.selection: return
 		n = 1
-		self.prop_entries = { }
+		props = self.props = [ ]
 		for prop in self.selection.properties:
 			pname, plabel, ptype = prop
-			lbl = Label(self.prop_list, text=plabel)
-			f = Frame(self.prop_list)
-			v = StringVar(value=getattr(self.selection, pname))
-			ent = Entry(f, textvariable=v)
-			ent.pack(side=LEFT, fill=BOTH, expand=True)
-			ent.var = v
-			ent.prop_name = pname
-			ent.prop_type = ptype
-			if hasattr(ptype, "mode"):
-				b = Button(f, text="...", command=lambda ent=ent: self.show_more(ent))
-				b.pack(side=RIGHT)
-			lbl.grid(column=0, row=n)
-			f.grid(column=1, row=n)
-			n += 1
-			self.prop_entries[pname] = ent
+			if ptype in prop_types:
+				ptype = prop_types[ptype]
+				lbl = Label(self.prop_list, text=plabel)
+				f = ptype(self.prop_list, self.selection, pname)
+				lbl.grid(column=0, row=n)
+				f.grid(column=1, row=n)
+				n += 1
+				props.append(f)
 		b = Button(self.prop_list, text="Apply", command=self.apply_props)
 		b.grid(column=0, row=n)
 		b = Button(self.prop_list, text="Revert", command=self.update_property_list)
 		b.grid(column=1, row=n)
 
-	def show_more(self, ent):
-		mode = ent.prop_type.mode
-		if mode == "color":
-			c = tkColorChooser.askcolor(color=ent.var.get())
-			if c[1]:
-				ent.var.set(c[1])
-
 	def apply_props(self):
 		if not self.selection: return
-		for key in self.prop_entries:
-			ent = self.prop_entries[key]
+		for prop in self.props:
 			try:
-				setattr(self.selection, ent.prop_name, ent.prop_type(ent.var.get()))
+				prop.commit()
 			except ValueError:
 				pass
 		self.redraw_canvas()
@@ -209,7 +311,7 @@ class MainFrame(Frame):
 		g = gfx.TkGraphics(self.canvas, translate=translate, scale=scale)
 		g.clear()
 		self.formspec.draw(g)
-		self.fsbox.delete(0, END)
+		self.fsbox.delete("0.0", END)
 		self.fsbox.insert(END, str(self.formspec))
 
 	def mcb_file_save(self):

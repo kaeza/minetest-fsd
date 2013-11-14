@@ -4,13 +4,13 @@ import re
 import gfx
 
 POS_PROPS = (
-	("x", "Left", float),
-	("y", "Top",  float),
+	("x", "Left", "num"),
+	("y", "Top",  "num"),
 )
 
 SIZE_PROPS = (
-	("w", "Width",  float),
-	("h", "Height", float),
+	("w", "Width",  "num"),
+	("h", "Height", "num"),
 )
 
 black =  (  0,   0,   0)
@@ -18,45 +18,12 @@ gray25 = ( 64,  64,  64)
 gray50 = (128, 128, 128)
 white =  (255, 255, 255)
 
+# TODO
 def escape(s):
 	return s
 
 def unescape(s):
 	return s
-
-class Color:
-
-	regex = re.compile("#"
-		+r'(?P<r>[0-9a-fA-F][0-9a-fA-F])'
-		+r'(?P<g>[0-9a-fA-F][0-9a-fA-F])'
-		+r'(?P<b>[0-9a-fA-F][0-9a-fA-F])'
-		+r'(?P<a>[0-9a-fA-F][0-9a-fA-F])?'
-	)
-
-	mode = "color"
-
-	def __init__(self, s=None, r=0, g=0, b=0, a=None):
-		if s:
-			m = self.regex.match(s)
-			if not m:
-				raise ValueError, "invalid color format"
-			self.r = int(m.group("r"), 16)
-			self.g = int(m.group("g"), 16)
-			self.b = int(m.group("b"), 16)
-			a = m.group("a")
-			if a:
-				self.a = int(a, 16)
-			else:
-				self.a = None
-		else:
-			self.r = r
-			self.g = g
-			self.b = b
-			self.a = a
-
-	def __str__(self):
-		a = "" if self.a is None else "%02X" % self.a
-		return "#%02X%02X%02X%s" % (self.r, self.g, self.b, a)
 
 class Widget:
 
@@ -70,7 +37,7 @@ class Widget:
 			pname, plabel, ptype = prop
 			if (pname in kw) and (kw[pname] is not None):
 				try:
-					setattr(self, pname, ptype(kw[pname]))
+					setattr(self, pname, kw[pname])
 				except ValueError:
 					pass
 
@@ -91,11 +58,11 @@ class FormConfig(Widget):
 	show_in_menu = False
 
 	properties = (
-		( "slot_bg_normal_color", "Slot Normal Color",  Color ),
-		( "slot_bg_hover_color",  "Slot Hover Color",   Color ),
-		( "slot_border_color",    "Slot Border Color",  Color ),
-		( "tooltip_bg_color",     "Tooltip Background", Color ),
-		( "tooltip_font_color",   "Tooltip Font Color", Color ),
+		( "slot_bg_normal_color", "Slot Normal Color",  "color" ),
+		( "slot_bg_hover_color",  "Slot Hover Color",   "color" ),
+		( "slot_border_color",    "Slot Border Color",  "color" ),
+		( "tooltip_bg_color",     "Tooltip Background", "color" ),
+		( "tooltip_font_color",   "Tooltip Font Color", "color" ),
 	)
 
 	def __init__(self,
@@ -129,7 +96,7 @@ class Label(Widget):
 	description = "Label"
 	item_names = ("label",)
 	properties = POS_PROPS + (
-		("text", "Text", str),
+		("text", "Text", "str"),
 	)
 
 	def __init__(self, x=0, y=0, text="Label"):
@@ -148,17 +115,62 @@ class Button(Widget):
 
 	description = "Button"
 	properties = POS_PROPS + SIZE_PROPS + (
-		("name", "Name", str),
-		("text", "Text", str),
+		("name", "Name", "str"),
+		("text", "Text", "str"),
 	)
 
 	def __init__(self, x=0, y=0, w=1, h=1, name="button", text="Button", exit=False):
 		Widget.__init__(self, x=x, y=y, w=w, h=h, name=name, text=text, exit=exit)
 
 	def __str__(self):
-		return "button[%r,%r;%r,%r;%s;%s]" % (
+		return "button%s[%r,%r;%r,%r;%s;%s]" % (
+			"_exit" if self.exit else "",
 			self.x, self.y, self.w, self.h,
 			escape(self.name), escape(self.text),
+		)
+
+	def get_description(self):
+		return "Button [%s] - %s" % (self.name, self.text)
+
+	def draw(self, g):
+		x1, y1, x2, y2 = self.x, self.y, self.x+self.w, self.y+self.h
+		g.rect(x1, y1, x2, y2, gray50)
+		g.line(x1, y1, x1, y2, white)
+		g.line(x1, y1, x2, y1, white)
+		g.line(x2, y1, x2, y2, black)
+		g.line(x1, y2, x2, y2, black)
+		g.text(self.text, (x1+x2)/2, (y1+y2)/2, white, gfx.C)
+
+class ImageButton(Widget):
+
+	description = "Image Button"
+	properties = POS_PROPS + SIZE_PROPS + (
+		("texture", "Texture", "str"),
+		("name",    "Name",    "str"),
+		("text",    "Text",    "str"),
+	)
+
+	def __init__(self,
+	  x=0, y=0,
+	  w=1, h=1,
+	  texture="default_wood.png",
+	  name="button",
+	  text="Button",
+	  exit=False):
+		Widget.__init__(self,
+			x=x, y=y,
+			w=w, h=h,
+			texture=texture,
+			name=name,
+			text=text,
+			exit=exit
+		)
+
+	def __str__(self):
+		return "image_button%s[%r,%r;%r,%r;%s;%s]" % (
+			"_exit" if self.exit else "",
+			self.x, self.y, self.w, self.h,
+			escape(self.texture), escape(self.name), escape(self.text),
 		)
 
 	def get_description(self):
@@ -177,6 +189,10 @@ classes = (
 	Label,
 	Button,
 )
+
+name_to_class = { }
+for c in classes:
+	name_to_class[c.__name__] = c
 
 class Form:
 
